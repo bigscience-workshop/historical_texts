@@ -15,11 +15,12 @@ from collections import defaultdict
 import pandas as pd
 
 # List of entity types
-ent_types = ["PERS", "LOC", "ORG", "TIME", "PROD.MED", "PROD.DOC"] # I split products into media and doctrines as "products" is too general as a prompt
-ent2name = {'PERS': 'person', 'LOC': 'location', 'ORG': 'organization', 'TIME': 'date', 'PROD.MED': 'media', 'PROD.DOC': 'doctrine'}
+ent_types = ["PERS", "LOC", "ORG", "TIME", "PROD"]
+ent2name = {'PERS': 'person', 'LOC': 'location', 'ORG': 'organization', 'TIME': 'date', 'PROD': 'media or doctrine'}
 ent2query = {"PERS": "names of person", "LOC": "names of location", "ORG": "names of organization", 
-             "TIME": "dates", "PROD.MED": "names of media", "PROD.DOC": "names of doctrine"}
-ent2numb = {'PERS': [4,9], 'LOC': [2,7], 'ORG': [3,8], 'TIME': 11, 'PROD.MED': [5,10], 'PROD.DOC': [5,10]}
+             "TIME": "dates", "PROD": "names of media or doctrine"}
+ent2numb = {'PERS': [4,9], 'LOC': [2,7], 'ORG': [3,8], 'TIME': 11, 'PROD': [5,10]}
+ix2ent = {0: "NONE", 2: 'LOC', 3: 'ORG', 4: 'PERS', 5: 'PROD', 7: 'LOC', 8: 'ORG', 9: 'PERS', 10: 'PROD', 11: 'TIME'}  
 
 # Upload model
 model_name = "bigscience/T0pp"
@@ -52,91 +53,70 @@ def dataset_upload(lang):
         dataset_val = load_dataset("bigscience-historical-texts/HIPE2020_sent-split", "fr", split = "validation")
         dataset_train = load_dataset("bigscience-historical-texts/HIPE2020_sent-split", "fr", split = "train")
         dataset = concatenate_datasets(dataset_val, dataset_train)
-    return dataset
     print("Dataset loaded")
+    return dataset
 
 # Divide dataset into periods of 20 years
-"TO DO: split by period"
 def dataset_period(dataset):
     date_junction = range(1790, 1951, 20) 
+    period_dict = {i: [] for i in date_junction}
+
+    dataset = dataset.sort("date")
+    for item in dataset:
+        # Our ranges are [start_year, end_year[
+        if item['date'].year > 1949:
+            date_counter = 0
+            break
+        while item['date'].year >= date_junction[date_counter + 1]:
+            date_counter += 1
+
+        period_dict[date_junction[date_counter]].append(item)
+   return period_dict
 
 
-def prediction(dataset):
-# Cycle over sentences
-    "TO DO: optimize this section"
-    for s in range(len(dataset)):
+def prediction(local_period):
+    true_positives, false_positives, false_negatives = 0, 0, 0
+    # If the datasplit is changed to keep dataset objets, replace the 3 next lines with the commented line
+    #for s, (tokens, ents) in enumerate(zip(dataset['tokens'], dataset['NE_COARSE_LIT'])):
+    for sentence_obj in local_period:
+        tokens = sentence_obj["tokens"]
+        ents = sentence_obj["NE_COARSE_LIT"]
+        sentence = " ".join(tokens)
 
-        tokens = dataset['tokens'][s]
-        sentence = ' '.join(dataset['tokens'][s])
+        # ---- We store all entities as strings, by types, to confront them to model predictions
+        entities = {ent_type: [] for ent_type in ent_types}
+        cur_ent, cur_tokens = "NONE", []
+        for token, ent in zip(tokens, ents):
+            if ent in [1, 6]:
+                continue
+
+            # If we change entity type, we store the current token
+            if ix2ent[ent] != cur_ent: 
+                if cur_ent != "NONE":
+                    entities[cur_ent].append(cur_tokens)
+                    cur_tokens = []
+
+            if ent != 0:
+                cur_tokens.append(token)
+
+            cur_ent = ix2ent[ent]
+
+        ent2gold = {k: [" ".join(v) for v in values] for k, values in entities.items()}
+        gold2ent = {v: k for k,values in ent2gold.items() for v in values }
         
-        # List the entities in the sentence
-        # Express each entity as a string, not as a list of tokens. This is because the output of T0 will also be a string.
-        ents = dataset['NE_COARSE_LIT'][s]
-        sent_LOC = []
-        sent_ORG = []
-        sent_PERS = []
-        sent_PROD = []
-        sent_TIME = []
-    
-        for i in range(len(ents)):
-            if ents[i] == 2 and i+1 == len(ents):
-                sent_LOC.append([tokens[i]])
-            if ents[i] == 2 and i+1 <len(ents):
-                res = next(x for x, val in enumerate(ents[i+1:]) if val in (0,2,3,4,5,6,8,9,10,11))
-                sent_LOC.append(tokens[i:i+res+1])    
-        
-        for i in range(len(ents)):
-            if ents[i] == 3 and i+1 == len(ents):
-                sent_ORG.append([tokens[i]])
-            if ents[i] == 3 and i+1 <len(ents):
-                res = next(x for x, val in enumerate(ents[i+1:]) if val in (0,2,3,4,5,6,7,9,10,11))
-                sent_ORG.append(tokens[i:i+res+1])
-
-        for i in range(len(ents)):
-            if ents[i] == 4 and i+1 == len(ents):
-                sent_PERS.append([tokens[i]])
-            if ents[i] == 4 and i+1 <len(ents):
-                res = next(x for x, val in enumerate(ents[i+1:]) if val in (0,2,3,4,5,6,7,8,10,11))
-                sent_PERS.append(tokens[i:i+res+1])   
-
-        for i in range(len(ents)):
-            if ents[i] == 5 and i+1 == len(ents):
-                sent_PROD.append([tokens[i]])
-            if ents[i] == 5 and i+1 <len(ents):
-                res = next(x for x, val in enumerate(ents[i+1:]) if val in (0,2,3,4,5,6,7,8,9,11))
-                sent_PROD.append(tokens[i:i+res+1])
-
-        for i in range(len(ents)):
-            if ents[i] == 6 and i+1 == len(ents):
-                sent_TIME.append([tokens[i]])
-            if ents[i] == 6 and i+1 <len(ents):
-                res = next(x for x, val in enumerate(ents[i+1:]) if val in (0,2,3,4,5,6,7,8,9,10))
-                sent_TIME.append(tokens[i:i+res+1])
-
-        sent_LOC = [' '.join(sub_list) for sub_list in sent_LOC]
-        sent_ORG = [' '.join(sub_list) for sub_list in sent_ORG]
-        sent_PERS = [' '.join(sub_list) for sub_list in sent_PERS]
-        sent_PROD = [' '.join(sub_list) for sub_list in sent_PROD]
-        sent_TIME = [' '.join(sub_list) for sub_list in sent_TIME]
-
-        tok2ent_gold = {i : 'LOC' for i in sent_LOC}
-        tok2ent_gold.update({i : 'ORG' for i in sent_ORG})
-        tok2ent_gold.update({i : 'PERS' for i in sent_PERS})
-        tok2ent_gold.update({i : 'PROD' for i in sent_PROD})
-        tok2ent_gold.update({i : 'TIME' for i in sent_TIME})   
-
-        # Cycle over prompts
-        result_tok, result_ent = [], [] # if we are studying sentences one at a time, it is way faster to use a list than a dataframe
-        for ent, ent_query in ent2query.items():
-            prompt = "Input: {}.format(sentence)" + "\n" + "In input, what are the {}? Separate answers with commas".format(ent_query)
+        # ---- For each entity type, we prompt the model
+        result_tok, result_ent = [], []
+        for ent_type, gold_tokens in entities.items():
+            prompt = f"Input: {sentence}\nIn input, what are the {ent2query[ent_type]}? Separate answers with commas"
             answer = T0_infer(prompt).split(",")
 
             # Check if token exists and add it to list    
             for tok in answer:
-                if tok.lower() in sentence.lower(): # faster than a regex
+                if tok.lower() in sentence.lower(): 
                     result_tok.append(tok)
-                    result_ent.append(ent)
+                    result_ent.append(ent_type)
 
+        # ---- We remove duplicates and overlapping tokens
         # Disambiguate 1: choose longest token when token is substring of another token
         dup_indices = []
         for tok in result_tok:
@@ -167,28 +147,34 @@ def prediction(dataset):
 
             else:
                 tok2ents_dedup[tok] = ent
-        
-        tok2ents_preds = tok2ents_dedup
 
-        #  Collapse PROD.MED and PROD.DOC into PROD
-        for tok, ent in tok2ents_preds.items():
-            if ent == 'PROD.MED' or ent == 'PROD.DOC':
-                tok2ents_preds[tok] = 'PROD'
+        # ---- Extract statistics
+        for tok, ent in tok2ents_dedup.items():
+            # Predicted token does not exist
+            if tok not in gold2ent.keys():
+                false_negative += 1
+            else:
+                # Token is correct
+                if gold2ent[tok] == ent:
+                    true_positive += 1
+                # Token predicted is incorrect
+                else:
+                    false_positive += 1
 
-    "TO DO: compare predictions with gold standard. Calculate precision, recall and F-score"
-    # Compare tok2ents_preds to tok2ent_gold
+    precision = true_positives / (true_positives + false_positives)
+    recall = true_positives / (true_positives + false_negatives)
+    F1 = 2 * precision * recall / (precision + recall)
+    return {"precision": precision, "recall": recall, "F1": F1} 
+  
+# Main
+result = {l: {} for l in ["en", "de", "fr"]}
+for lang in ["en", "de", "fr"]:
+    dataset = dataset_upload(lang)
+    time_splits = dataset_period(dataset)
+    for time, time_split in time_splits.items():
+        result[lang][time] = prediction(time_split)
 
-    # true_positives = 0
-    # false_positives = 0
-    # false_negatives = 0
-
-    # for tok, ent in tok2ents_preds.items():
-    #     if ent == tok2ent_gold[tok]:
-    #         true_positives += 1
-    # .....
-
-    # precision = true_positives / (true_positives + false_positives)
-    # recall = true_positives / (true_positives + false_negatives)
-    # F1 = 2 * precision * recall / (precision + recall)
-
-    # Store results
+# Would be better as json dump
+with open("result_NER.log", "w+") as f:
+    f.write(result)
+      
