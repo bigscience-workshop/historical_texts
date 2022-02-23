@@ -8,11 +8,15 @@ This script runs inference of T0++ on multiple GPUs using model parallelism.
 from transformers import AutoTokenizer, AutoModelForSeq2SeqLM
 import datasets
 import torch
-import pandas
 import re
+from collections import defaultdict
 
 # List of entity types
 ent_types = ["PERS", "LOC", "ORG", "TIME", "PROD.MED", "PROD.DOC"] # I split products into media and doctrines as "products" is too general as a prompt
+ent2name = {'PERS': 'person', 'LOC': 'location', 'ORG': 'organization', 'TIME': 'date', 'PROD.MED': 'media', 'PROD.DOC': 'doctrine'}
+ent2query = {"PERS": "names of person", "LOC": "names of location", "ORG": "names of organization", 
+             "TIME": "dates", "PROD.MED": "names of media", "PROD.DOC": "names of doctrine"}
+
 
 # Upload model
 model_name = "bigscience/T0pp"
@@ -42,70 +46,46 @@ def T0_infer(prompt):
 sentence = sentence
 
 # Cycle over prompts
-df = pd.DataFrame(columns=["token", "entity_type"])
-ent_types_query = ["names of person", "names of location", "names of organization", "dates", "names of media", "names of doctrine"]
-for k in ent_types:
-    prompt = "Input: {}.format(sentence)" + "\n" + "In input, what are the {}? Separate answers with commas".format(ent_types_query)
-    answer = T0_infer(prompt)
-    inferred_ents = answer.split(",")
+result_tok, result_ent = [], [] # if we are studying sentences one at a time, it is way faster to use a list than a dataframe
+for ent, ent_query in ent2query.items():
+    prompt = "Input: {}.format(sentence)" + "\n" + "In input, what are the {}? Separate answers with commas".format(ent_query)
+    answer = T0_infer(prompt).split(",")
 
-    # Check if token exists and add it to dataframe    
-    for token in inferred_ents:
-        if re.search(token, sentence, re.IGNORECASE):
-            df = df.append({"token": token, "entity_type": ent_types[k]}, ignore_index=True)
+    # Check if token exists and add it to list    
+    for tok in answer:
+        if tok.lower() in sentence.lower(): # faster than a regex
+            result_tok.append(tok)
+            result_ent.append(ent)
 
 # Disambiguate 1: choose longest token when token is substring of another token
-lower_span_idx = []
-for i in range(len(df)):
-    for j in range(len(df)):
-        if i != j:
-            if re.search(df["token"][j], df["token"][i], re.IGNORECASE):
-                lower_span_idx.append(j)
-df = df.drop(lower_span_idx)
+dup_indices = []
+for tok in result_tok:
+    dup_indices.extend([i for i, smaller_tok in enumerate(result_tok) if smaller_tok in tok])
 
-# Disambiguate 2: disambiguate duplicate tokens
-df_dedup = df.groupby('token')['entity_type'].apply(lambda x: list(x)).reset_index()
-for i in range(len(df_dedup)):
-    if len(df_duplicates["entity"][i]) > 1:
-        token_dup = df_dedup["token"][i]
-        ent_dup = df_duplicates["entity"][i]
+dup_indices = set(dup_indices)
+result_tok_longest = [tok for ix, tok in result_tok if ix not in dup_indices]
+result_ent_longest = [ent for ix, ent in result_ent if ix not in dup_indices]
 
-        for i,n in enumerate(ent_dup): # replace NER codes with text for prompt
-            if n == 'PERS':
-                ent_dup[i] = 'person'
-            elif n == 'LOC':
-                ent_dup[i] = 'location'
-            elif n == 'ORG':
-                ent_dup[i] = 'organization'
-            elif n == 'TIME':
-                ent_dup[i] = 'date'
-            elif n == 'PROD.MED':
-                ent_dup[i] = 'media'
-            elif n == 'PROD.DOC':
-                ent_dup[i] = 'doctrine'
+# Disambiguate 2: disambiguate duplicate entities for a token
+tok2ents = defaultdict(list)
+for ent, tok in zip(result_tok_longest, result_ent_longest):
+    tok2ents[tok].append(ent)
 
-        if len(ent_duplicates) == 2:
-            prompt = "Input: {}.format(sentence)" + "\n" + "In input, is \"{}\", a {} or a {}? Give only one answer".format(token_dup, ent_dup[0], ent_dup[1])
-        elif len(ent_duplicates) == 3:
-            prompt = "Input: {}.format(sentence)" + "\n" + "In input, is \"{}\", a {}, a {} or a {}? Give only one answer".format(token_dup, ent_dup[0], ent_dup[1], ent_dup[2])
-        elif len(ent_duplicates) == 4:
-            prompt = "Input: {}.format(sentence)" + "\n" + "In input, is \"{}\", a {}, a {}, a {} or a {}?. Give only one answer".format(token_dup, ent_dup[0], ent_dup[1], ent_dup[2], ent_dup[3])
-        elif len(ent_duplicates) == 5:
-            prompt = "Input: {}.format(sentence)" + "\n" + "In input, is \"{}\", a {}, a {}, a {}, a {} or a {}? Give only one answer".format(token_dup, ent_dup[0], ent_dup[1], ent_dup[2], ent_dup[3], ent_dup[4])
-        elif len(ent_duplicates) == 6:
-            prompt = "Input: {}.format(sentence)" + "\n" + "In input, is \"{}\", a {}, a {}, a {}, a {}, a {} or a {}? Give only one answer".format(token_dup, ent_dup[0], ent_dup[1], ent_dup[2], ent_dup[3], ent_dup[4], ent_dup[5])
+tok2ents_dedup = {}
+for tok, ents in tok2ents.items():
+    if len(ents) > 1:
+        prompt = f"Input: {sentence} \n In input, is \"{token_dup}\" 
+        prompt += "".join(f',a {type2name[ent]}' for ent in ents[:-1]) 
+        prompt += f"or a {type2name[ents[-1]]}? Give only one answer"
 
-    answer = T0_infer(sentence)
+        answer = T0_infer(prompt)
 
-    # Check that answer is actually an entity type
-    if answer in ent_types:
-        df_duplicates["entity"][i] = [answer]
+        # Check that answer is actually an entity type, if not we don't keep it
+        if answer in ent_types:
+            tok2ents_dedup[tok] = answer
+
     else:
-        df_dedup.drop(i, inplace=True)
-
-df_dedup["entity"] = df_dedup["entity"].apply(lambda x: x[0])
-df = df_dedup
-
+        tok2ents_dedup[tok] = ent
 "TO DO: collapse PROD.MED and PROD.DOC into PROD"
 
 "TO DO: add predicted entity to dataframe with all predictions"
