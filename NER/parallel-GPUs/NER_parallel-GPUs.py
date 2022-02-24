@@ -10,6 +10,8 @@ To manipulate the biggest variants of T0 (11B parameters, like T0++), you will n
 If this is an issue, consider using T0 3B, which is a smaller variant of T0.
 To run on T0_3B, set model_name = bigscience/T0_3B
 
+Answers from T0 are exactly matched to words in the input sentence.
+
 """
 
 ######################################################################################################
