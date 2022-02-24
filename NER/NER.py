@@ -89,7 +89,12 @@ def prediction(local_period):
         for token, ent in zip(tokens, ents):
             if ent in [1, 6]:
                 continue
-
+            
+            # We are faced with a B-PROD/PERS when we alread had a PROD/PERS entity
+            if ent == 5 and cur_ent == "PROD" or ent == 4 and cur_ent == "PERS":
+                entities[cur_ent].append(cur_tokens)
+                cur_tokens = []
+                
             # If we change entity type, we store the current token
             if ix2ent[ent] != cur_ent: 
                 if cur_ent != "NONE":
