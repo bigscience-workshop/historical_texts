@@ -87,11 +87,11 @@ def dataset_upload(lang):
     elif lang == "de":
         dataset_val = load_dataset("bigscience-historical-texts/HIPE2020_sent-split", "de", split = "validation")
         dataset_train = load_dataset("bigscience-historical-texts/HIPE2020_sent-split", "de", split = "train")
-        dataset = concatenate_datasets(dataset_val, dataset_train)
+        dataset = concatenate_datasets([dataset_val, dataset_train])
     elif lang == "fr":
         dataset_val = load_dataset("bigscience-historical-texts/HIPE2020_sent-split", "fr", split = "validation")
         dataset_train = load_dataset("bigscience-historical-texts/HIPE2020_sent-split", "fr", split = "train")
-        dataset = concatenate_datasets(dataset_val, dataset_train)
+        dataset = concatenate_datasets([dataset_val, dataset_train])
     print("Dataset loaded")
     return dataset
 
