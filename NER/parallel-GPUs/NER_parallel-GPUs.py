@@ -72,9 +72,9 @@ def dataset_period(dataset):
 
     dataset = dataset.sort("date")
     for item in dataset:
-        # Our ranges are [start_year, end_year[
+        # Our ranges are [start_year, end_year]
+        date_counter = 0
         if item['date'].year > 1949:
-            date_counter = 0
             break
         while item['date'].year >= date_junction[date_counter + 1]:
             date_counter += 1
