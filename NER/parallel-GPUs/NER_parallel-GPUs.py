@@ -137,8 +137,8 @@ def prediction(local_period):
             dup_indices.extend([i for i, smaller_tok in enumerate(result_tok) if smaller_tok in tok])
 
         dup_indices = set(dup_indices)
-        result_tok_longest = [tok for ix, tok in result_tok if ix not in dup_indices]
-        result_ent_longest = [ent for ix, ent in result_ent if ix not in dup_indices]
+        result_tok_longest = [tok for ix, tok in enumerate(result_tok) if ix not in dup_indices]
+        result_ent_longest = [ent for ix, ent in enumerate(result_ent) if ix not in dup_indices]
 
         # Disambiguate 2: disambiguate duplicate entities for a token
         tok2ents = defaultdict(list)
