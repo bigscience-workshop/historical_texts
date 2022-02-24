@@ -1,10 +1,16 @@
 """
 This script runs inference of T0++ on multiple GPUs using model parallelism.
-# The minimum requirements to run T0++ (11B parameters) inference are 4 16GB V100 or 2 32GB V100 (or basically, enough GPU memory to fit ~42GB of fp32 parameters).
-# (https://github.com/bigscience-workshop/t-zero/blob/master/inference/model_parallelism.py)
-"""
+The model will be splitted across all available devices. Note that this feature is still an experimental feature under 🤗 Transformers.
 
-"""TO DO: create version for single GPU"""
+The minimum requirements to run T0++ (11B parameters) inference are 4 16GB V100 or 2 32GB V100 (or basically, enough GPU memory to fit ~42GB of fp32 parameters).
+T0 developers highly advise against performing inference in fp16 as the predictions will be unreliable and don't represent well the performance of the model.
+(https://github.com/bigscience-workshop/t-zero/blob/master/inference/README.md)
+
+To manipulate the biggest variants of T0 (11B parameters, like T0++), you will need ~90GB of CPU memory to load the model in memory.
+If this is an issue, consider using T0 3B, which is a smaller variant of T0.
+To run on T0_3B, set model_name = bigscience/T0_3B
+
+"""
 
 ######################################################################################################
 
@@ -12,7 +18,6 @@ from transformers import AutoTokenizer, AutoModelForSeq2SeqLM
 from datasets import load_dataset, concatenate_datasets
 import torch
 from collections import defaultdict
-import pandas as pd
 
 # List of entity types
 ent_types = ["PERS", "LOC", "ORG", "TIME", "PROD"]
@@ -40,6 +45,7 @@ def T0_infer(prompt):
         outputs = model.generate(inputs)
 
     answer = (tokenizer.decode(outputs[0], skip_special_tokens=True))
+    return answer
 
 # Upload dataset
 def dataset_upload(lang):
@@ -71,7 +77,7 @@ def dataset_period(dataset):
             date_counter += 1
 
         period_dict[date_junction[date_counter]].append(item)
-   return period_dict
+    return period_dict
 
 
 def prediction(local_period):
