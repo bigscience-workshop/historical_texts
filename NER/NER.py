@@ -71,7 +71,7 @@ def dataset_period(dataset):
             date_counter += 1
 
         period_dict[date_junction[date_counter]].append(item)
-   return period_dict
+    return period_dict
 
 
 def prediction(local_period):
