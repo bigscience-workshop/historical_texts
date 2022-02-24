@@ -98,6 +98,7 @@ def dataset_upload(lang):
 # Divide dataset into periods of 20 years
 def dataset_period(dataset):
     date_junction = range(1790, 1951, 20) 
+    date_counter = 0
     period_dict = {i: [] for i in date_junction}
 
     dataset = dataset.sort("date")
