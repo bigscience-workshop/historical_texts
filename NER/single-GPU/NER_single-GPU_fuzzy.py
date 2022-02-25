@@ -25,6 +25,7 @@ import os
 from datasets import load_dataset, concatenate_datasets
 import torch
 from collections import defaultdict
+import json
 import regex
 
 # List of entity types
@@ -32,7 +33,7 @@ ent_types = ["PERS", "LOC", "ORG", "TIME", "PROD"]
 ent2name = {'PERS': 'person', 'LOC': 'location', 'ORG': 'organization', 'TIME': 'date', 'PROD': 'media or doctrine'}
 ent2query = {"PERS": "names of person", "LOC": "names of location", "ORG": "names of organization", 
              "TIME": "dates", "PROD": "names of media or doctrine"}
-ent2numb = {'PERS': [4,9], 'LOC': [2,7], 'ORG': [3,8], 'TIME': 11, 'PROD': [5,10]}
+ent2numb = {'PERS': [4,9], 'LOC': [2,7], 'ORG': [3,8], 'TIME': [6,11], 'PROD': [5,10]}
 ix2ent = {0: "NONE", 2: 'LOC', 3: 'ORG', 4: 'PERS', 5: 'PROD', 7: 'LOC', 8: 'ORG', 9: 'PERS', 10: 'PROD', 11: 'TIME'}  
 
 # Upload model
@@ -98,7 +99,6 @@ def dataset_upload(lang):
 
 # Divide dataset into periods of 20 years
 def dataset_period(dataset):
-    date_counter = 0
     date_junction = range(1790, 1951, 20) 
     period_dict = {i: [] for i in date_junction}
 
@@ -116,7 +116,9 @@ def dataset_period(dataset):
 
 
 def prediction(local_period):
-    true_positives, false_positives, false_negatives = 0, 0, 0
+    true_positives = 1e-10 # To avoid division by zero
+    false_positives, false_negatives = 0, 0
+    local_period_res = {} # to store the results of each sentence in the period
     # If the datasplit is changed to keep dataset objets, replace the 3 next lines with the commented line
     #for s, (tokens, ents) in enumerate(zip(dataset['tokens'], dataset['NE_COARSE_LIT'])):
     for sentence_obj in local_period:
@@ -131,8 +133,8 @@ def prediction(local_period):
             if ent in [1, 6]:
                 continue
             
-            # We are faced with a B-PROD/PERS when we alread had a PROD/PERS entity
-            if ent == 5 and cur_ent == "PROD" or ent == 4 and cur_ent == "PERS":
+            # We are faced with a B-PROD/PERS/LOC/ORG when we alread had a PROD/PERS/LOC/ORG entity
+            if ent == 5 and cur_ent == "PROD" or ent == 4 and cur_ent == "PERS" or ent == 2 and cur_ent == "LOC" or ent == 3 and cur_ent == "ORG":
                 entities[cur_ent].append(cur_tokens)
                 cur_tokens = []
                 
@@ -154,11 +156,13 @@ def prediction(local_period):
         result_tok, result_ent = [], []
         for ent_type, gold_tokens in entities.items():
             prompt = f"Input: {sentence}\nIn input, what are the {ent2query[ent_type]}? Separate answers with commas"
-            answer = T0_infer(prompt).split(",")
+            answer = T0_infer(prompt).split(", ")
 
             # Check if token exists and add it to list    
             for tok in answer:
-                if regex.search(f'({tok.lower()})' + '{e<=1}', sentence.lower()): # tolerate up to one insertion, addition or deletion 
+                tok = regex.sub(r'\(', r'\\(', tok)
+                tok = regex.sub(r'\)', r'\\)', tok)
+                if regex.search(f'({tok.lower()})' + '{e<=3}', sentence.lower()): # tolerate up to three insertions, additions or deletions 
                     result_tok.append(tok)
                     result_ent.append(ent_type)
 
@@ -181,13 +185,13 @@ def prediction(local_period):
         for tok, ents in tok2ents.items():
             if len(ents) > 1:
                 prompt = f"Input: {sentence} \n In input, is \"{tok}\"" 
-                prompt += ''.join(f',a {ent2name[ent]}' for ent in ents[:-1]) 
+                prompt += ''.join(f', a {ent2name[ent]}' for ent in ents[:-1]) 
                 prompt += f"or a {ent2name[ents[-1]]}? Give only one answer"
 
                 answer = T0_infer(prompt)
 
                 # Check that answer is actually an entity type, if not we don't keep it
-                if answer in ent2name.values():
+                if answer.lower() in ent2name.values():
                     chosen_ent = list(ent2name.keys())[list(ent2name.values()).index(answer)]
                     tok2ents_dedup[tok] = [chosen_ent]
 
@@ -207,10 +211,13 @@ def prediction(local_period):
                 else:
                     false_positive += 1
 
+        # ---- Store sentence results
+        local_period_res[sentence_obj['id']] = {'Gold entities': gold2ent, 'Predicted entities': tok2ents_dedup}
+    
     precision = true_positives / (true_positives + false_positives)
     recall = true_positives / (true_positives + false_negatives)
     F1 = 2 * precision * recall / (precision + recall)
-    return {"precision": precision, "recall": recall, "F1": F1} 
+    return {"precision": precision, "recall": recall, "F1": F1, "sentences results": local_period_res}
   
 # Main
 result = {l: {} for l in ["en", "de", "fr"]}
@@ -220,6 +227,10 @@ for lang in ["en", "de", "fr"]:
     for time, time_split in time_splits.items():
         result[lang][time] = prediction(time_split)
 
-# Would be better as json dump
+# Save results
 with open("result_NER.log", "w+") as f:
-    f.write(result)
+    f.write(str(result))
+
+# Dump results to json
+with open("result_NER.json", "w+") as f:
+    json.dump(result, f)
