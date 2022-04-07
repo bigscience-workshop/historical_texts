@@ -36,17 +36,17 @@ _BASE_URL_TRAIN_DEV = "https://raw.githubusercontent.com/impresso/CLEF-HIPE-2020
 _URLs = {
     "EN": {
         "dev": _BASE_URL_TRAIN_DEV + "en/HIPE-data-v1.4-dev-en.tsv?raw=true",
-        "test": _BASE_URL_TRAIN_DEV + "en/HIPE-data-v1.4-test-masked-en.tsv?raw=true"
+        "test": _BASE_URL_TRAIN_DEV + "en/HIPE-data-v1.4-test-en.tsv?raw=true"
     },  # English only has dev
     "DE": {
         "dev": _BASE_URL_TRAIN_DEV + "de/HIPE-data-v1.4-dev-de.tsv?raw=true",
         "train": _BASE_URL_TRAIN_DEV + "de/HIPE-data-v1.4-train-de.tsv?raw=true",
-        "test": _BASE_URL_TRAIN_DEV + "de/HIPE-data-v1.4-test-masked-de.tsv?raw=true"
+        "test": _BASE_URL_TRAIN_DEV + "de/HIPE-data-v1.4-test-de.tsv?raw=true"
     },
     "FR": {
         "dev": _BASE_URL_TRAIN_DEV + "fr/HIPE-data-v1.4-dev-fr.tsv?raw=true",
         "train": _BASE_URL_TRAIN_DEV + "fr/HIPE-data-v1.4-train-fr.tsv?raw=true",
-        "test": _BASE_URL_TRAIN_DEV + "fr/HIPE-data-v1.4-test-masked-fr.tsv?raw=true"
+        "test": _BASE_URL_TRAIN_DEV + "fr/HIPE-data-v1.4-test-fr.tsv?raw=true"
     },
 }
 
