@@ -16,6 +16,7 @@ Answers from T0 are exactly matched to words in the input sentence.
 
 ######################################################################################################
 import json
+import os
 from transformers import AutoTokenizer, AutoModelForSeq2SeqLM
 from datasets import load_dataset, concatenate_datasets
 import torch
@@ -24,16 +25,19 @@ from collections import defaultdict
 # List of entity types
 ent_types = ["PERS", "LOC", "ORG", "TIME", "PROD"]
 ent2name = {'PERS': 'person', 'LOC': 'location', 'ORG': 'organization', 'TIME': 'date', 'PROD': 'media or doctrine'}
-ent2query = {"PERS": "names of person", "LOC": "names of location", "ORG": "names of organization", 
+ent2query = {"PERS": "names of person", "LOC": "names of location", "ORG": "names of organization",
              "TIME": "dates", "PROD": "names of media or doctrine"}
 ent2numb = {'PERS': [4,9], 'LOC': [2,7], 'ORG': [3,8], 'TIME': 11, 'PROD': [5,10]}
-ix2ent = {0: "NONE", 2: 'LOC', 3: 'ORG', 4: 'PERS', 5: 'PROD', 7: 'LOC', 8: 'ORG', 9: 'PERS', 10: 'PROD', 11: 'TIME'}  
+ix2ent = {0: "NONE", 2: 'LOC', 3: 'ORG', 4: 'PERS', 5: 'PROD', 7: 'LOC', 8: 'ORG', 9: 'PERS', 10: 'PROD', 11: 'TIME'}
 
 # Avoid zero-div when calculating precision and recall
 epsilon = 1e-10
 
 # Upload model
 model_name = "bigscience/T0pp"
+
+# Force a split
+split = os.environ.get("SPLIT", "")
 
 model = AutoModelForSeq2SeqLM.from_pretrained(model_name)
 tokenizer = AutoTokenizer.from_pretrained(model_name)
@@ -44,7 +48,7 @@ print("Moved model to GPUs")
 
 
 def inference_log(obj):
-    with open(f"{__file__[:-3]}_log.json", "a") as file:
+    with open(f"{__file__[:-3]}_{split}_log.json", "a") as file:
         file.write(json.dumps(obj) + "\n")
 
 
@@ -58,20 +62,25 @@ def T0_infer(prompt):
     answer = (tokenizer.decode(outputs[0], skip_special_tokens=True))
     return answer
 
+
 # Upload dataset
 def dataset_upload(lang):
-    if lang == "en":
-        dataset = load_dataset("bigscience-historical-texts/HIPE2020_sent-split", "en", split = "validation")
-    elif lang == "de":
-        dataset_val = load_dataset("bigscience-historical-texts/HIPE2020_sent-split", "de", split = "validation")
-        dataset_train = load_dataset("bigscience-historical-texts/HIPE2020_sent-split", "de", split = "train")
-        dataset = concatenate_datasets([dataset_val, dataset_train])
-    elif lang == "fr":
-        dataset_val = load_dataset("bigscience-historical-texts/HIPE2020_sent-split", "fr", split = "validation")
-        dataset_train = load_dataset("bigscience-historical-texts/HIPE2020_sent-split", "fr", split = "train")
-        dataset = concatenate_datasets([dataset_val, dataset_train])
-    print("Dataset loaded")
+    if not split:
+        if lang == "en":
+            dataset = load_dataset("bigscience-historical-texts/HIPE2020_sent-split", "en", split="validation")
+        elif lang == "de":
+            dataset_val = load_dataset("bigscience-historical-texts/HIPE2020_sent-split", "de", split="validation")
+            dataset_train = load_dataset("bigscience-historical-texts/HIPE2020_sent-split", "de", split="train")
+            dataset = concatenate_datasets([dataset_val, dataset_train])
+        elif lang == "fr":
+            dataset_val = load_dataset("bigscience-historical-texts/HIPE2020_sent-split", "fr", split="validation")
+            dataset_train = load_dataset("bigscience-historical-texts/HIPE2020_sent-split", "fr", split = "train")
+            dataset = concatenate_datasets([dataset_val, dataset_train])
+    else:
+        dataset = load_dataset("bigscience-historical-texts/HIPE2020_sent-split", lang, split=split)
+    print("Dataset loaded", split)
     return dataset
+
 
 # Divide dataset into periods of 20 years
 def dataset_period(dataset):
@@ -195,7 +204,10 @@ def prediction(local_period, period, lang):
 # Main
 result = {l: {} for l in ["en", "de", "fr"]}
 for lang in ["en", "de", "fr"]:
-    dataset = dataset_upload(lang)
+    try:
+        dataset = dataset_upload(lang)
+    except ValueError:
+        continue
     time_splits = dataset_period(dataset)
     for time, time_split in time_splits.items():
         result[lang][time] = prediction(time_split, time, lang)
